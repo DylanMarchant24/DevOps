@@ -1,0 +1,84 @@
+name: CD Deployment
+
+on:
+  push:
+    branches:
+      - deploy
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_FRONTEND: ecr-front-despacho
+  ECR_BACK_DESPACHOS: ecr-back-despachos
+  ECR_BACK_VENTAS: ecr-back-ventas
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        working-directory: ./front_despacho
+        run: |
+          docker build -t $REGISTRY/$ECR_FRONTEND:$IMAGE_TAG .
+          docker push $REGISTRY/$ECR_FRONTEND:$IMAGE_TAG
+
+      - name: Build, tag, and push Backend Despachos image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        working-directory: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+        run: |
+          docker build -t $REGISTRY/$ECR_BACK_DESPACHOS:$IMAGE_TAG .
+          docker push $REGISTRY/$ECR_BACK_DESPACHOS:$IMAGE_TAG
+
+      - name: Build, tag, and push Backend Ventas image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        working-directory: ./back-Ventas_SpringBoot/Springboot-API-REST
+        run: |
+          docker build -t $REGISTRY/$ECR_BACK_VENTAS:$IMAGE_TAG .
+          docker push $REGISTRY/$ECR_BACK_VENTAS:$IMAGE_TAG
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Autenticarse en ECR desde la instancia EC2 para hacer pull
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            
+            # Navegar al directorio de despliegue (se asume que docker-compose.yml ya está ahí)
+            # En caso de no estar, podrías crear un paso previo para enviar el docker-compose por SCP
+            mkdir -p /home/ec2-user/app
+            cd /home/ec2-user/app
+            
+            # Detener contenedores actuales
+            docker-compose down || true
+            
+            # Descargar nuevas imágenes y arrancar
+            docker-compose pull
+            docker-compose up -d
+            
+            # Limpiar imágenes colgadas para ahorrar espacio
+            docker image prune -af
