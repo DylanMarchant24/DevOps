@@ -1,7 +1,5 @@
 # Environment variables
-.env
-.env.*
-!.env.example
+# El usuario solicitó mantener el .env en el repositorio
 
 # IDEs and Editors
 .idea/
