@@ -58,6 +58,21 @@ jobs:
           docker build -t $REGISTRY/$ECR_BACK_VENTAS:$IMAGE_TAG .
           docker push $REGISTRY/$ECR_BACK_VENTAS:$IMAGE_TAG
 
+      - name: Create .env for Production
+        run: |
+          echo "DB_USER=${{ secrets.DB_USER }}" >> .env
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+          echo "DB_URL=${{ secrets.DB_URL }}" >> .env
+
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,.env"
+          target: "/home/ec2-user/app"
+
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
