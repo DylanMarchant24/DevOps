@@ -31,7 +31,7 @@ resource "aws_lb_target_group" "frontend" {
 
 # Target Group: Backend Despachos (8081)
 resource "aws_lb_target_group" "back_despachos" {
-  name        = "${var.project_name}-tg-despachos"
+  name        = "${var.project_name}-tg-desp"
   port        = 8081
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
