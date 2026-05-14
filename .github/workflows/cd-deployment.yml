@@ -25,7 +25,8 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -81,7 +82,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # Autenticarse en ECR desde la instancia EC2 para hacer pull
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
             
             # Navegar al directorio de despliegue (se asume que docker-compose.yml ya está ahí)
             # En caso de no estar, podrías crear un paso previo para enviar el docker-compose por SCP
