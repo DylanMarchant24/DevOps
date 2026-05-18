@@ -6,6 +6,11 @@ on:
       - deploy
   workflow_dispatch:
 
+env:
+  ECR_REPO_FRONT: ecr-front-despacho
+  ECR_REPO_DESPACHOS: ecr-back-despachos
+  ECR_REPO_VENTAS: ecr-back-ventas
+
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
@@ -32,8 +37,8 @@ jobs:
           IMAGE_TAG: latest
         working-directory: ./front_despacho
         run: |
-          docker build -t $REGISTRY/${{ vars.ECR_REPO_FRONT }}:$IMAGE_TAG .
-          docker push $REGISTRY/${{ vars.ECR_REPO_FRONT }}:$IMAGE_TAG
+          docker build -t $REGISTRY/${{ env.ECR_REPO_FRONT }}:$IMAGE_TAG .
+          docker push $REGISTRY/${{ env.ECR_REPO_FRONT }}:$IMAGE_TAG
 
       - name: Build, tag, and push Backend Despachos image
         env:
@@ -41,8 +46,8 @@ jobs:
           IMAGE_TAG: latest
         working-directory: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
         run: |
-          docker build -t $REGISTRY/${{ vars.ECR_REPO_DESPACHOS }}:$IMAGE_TAG .
-          docker push $REGISTRY/${{ vars.ECR_REPO_DESPACHOS }}:$IMAGE_TAG
+          docker build -t $REGISTRY/${{ env.ECR_REPO_DESPACHOS }}:$IMAGE_TAG .
+          docker push $REGISTRY/${{ env.ECR_REPO_DESPACHOS }}:$IMAGE_TAG
 
       - name: Build, tag, and push Backend Ventas image
         env:
@@ -50,20 +55,20 @@ jobs:
           IMAGE_TAG: latest
         working-directory: ./back-Ventas_SpringBoot/Springboot-API-REST
         run: |
-          docker build -t $REGISTRY/${{ vars.ECR_REPO_VENTAS }}:$IMAGE_TAG .
-          docker push $REGISTRY/${{ vars.ECR_REPO_VENTAS }}:$IMAGE_TAG
+          docker build -t $REGISTRY/${{ env.ECR_REPO_VENTAS }}:$IMAGE_TAG .
+          docker push $REGISTRY/${{ env.ECR_REPO_VENTAS }}:$IMAGE_TAG
 
       - name: Create .env for Backend EC2
         run: |
           echo "DB_USER=${{ vars.DB_USER }}" > .env.back
           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.back
           echo "DB_URL=${{ vars.DB_URL }}" >> .env.back
-          echo "ECR_BACK_DESPACHOS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPO_DESPACHOS }}:latest" >> .env.back
-          echo "ECR_BACK_VENTAS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPO_VENTAS }}:latest" >> .env.back
+          echo "ECR_BACK_DESPACHOS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_DESPACHOS }}:latest" >> .env.back
+          echo "ECR_BACK_VENTAS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_VENTAS }}:latest" >> .env.back
 
       - name: Create .env for Frontend EC2
         run: |
-          echo "ECR_FRONT_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPO_FRONT }}:latest" > .env.front
+          echo "ECR_FRONT_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_FRONT }}:latest" > .env.front
 
       - name: Copy files to Frontend EC2 (Public)
         uses: appleboy/scp-action@v0.1.7
