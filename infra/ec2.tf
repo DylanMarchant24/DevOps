@@ -1,33 +1,5 @@
-# IAM Role para que la EC2 pueda autenticarse y descargar imágenes desde ECR
-resource "aws_iam_role" "ec2_ecr_role" {
-  name = "${var.project_name}-ec2-ecr-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# Adjuntar política gestionada por AWS para acceso read-only a ECR
-resource "aws_iam_role_policy_attachment" "ecr_read_only" {
-  role       = aws_iam_role.ec2_ecr_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-}
-
-# Instance Profile para asignar a la EC2
-resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "${var.project_name}-ec2-profile"
-  role = aws_iam_role.ec2_ecr_role.name
-}
-
+# En entornos de AWS Learner Lab/Academy no se pueden crear Roles IAM.
+# Usaremos el perfil de instancia preexistente llamado "LabInstanceProfile".
 # Obtener la AMI más reciente de Amazon Linux 2023
 data "aws_ami" "amazon_linux_2023" {
   most_recent = true
@@ -44,7 +16,7 @@ resource "aws_instance" "app_server" {
   ami                  = data.aws_ami.amazon_linux_2023.id
   instance_type        = "t2.micro"
   subnet_id            = aws_subnet.private[0].id
-  iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
+  iam_instance_profile = "LabInstanceProfile"
 
   # Adjuntar Security Groups (ec2_sg para apps, db_sg para la DB local si queremos abstraer sus reglas)
   vpc_security_group_ids = [aws_security_group.ec2_sg.id, aws_security_group.db_sg.id]
