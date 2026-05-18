@@ -23,7 +23,12 @@ output "ecr_front_despacho_url" {
   value       = aws_ecr_repository.front_despacho.repository_url
 }
 
-output "ec2_private_ip" {
-  description = "IP Privada de la instancia EC2"
-  value       = aws_instance.app_server.private_ip
+output "ec2_front_public_ip" {
+  description = "IP Publica de la instancia Frontend para acceder por SSH"
+  value       = aws_instance.frontend.public_ip
+}
+
+output "ec2_back_private_ip" {
+  description = "IP Privada de la instancia Backend para acceder por SSH proxy"
+  value       = aws_instance.backend.private_ip
 }
