@@ -17,12 +17,13 @@ services:
     networks:
       - retail_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   back-despachos:
+    image: ${ECR_BACK_DESPACHOS_IMAGE:-back_despachos:latest}
     build:
       context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
       dockerfile: Dockerfile
@@ -45,6 +46,7 @@ services:
         condition: service_healthy
 
   back-ventas:
+    image: ${ECR_BACK_VENTAS_IMAGE:-back_ventas:latest}
     build:
       context: ./back-Ventas_SpringBoot/Springboot-API-REST
       dockerfile: Dockerfile
@@ -67,6 +69,7 @@ services:
         condition: service_healthy
 
   front-despacho:
+    image: ${ECR_FRONT_IMAGE:-front_despacho:latest}
     build:
       context: ./front_despacho
       dockerfile: Dockerfile

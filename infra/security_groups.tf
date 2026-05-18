@@ -24,13 +24,12 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# Security Group para la instancia EC2 (Privado)
-resource "aws_security_group" "ec2_sg" {
-  name        = "${var.project_name}-ec2-sg"
-  description = "Permitir trafico desde el ALB hacia los contenedores"
+# Security Group para el Frontend (Público)
+resource "aws_security_group" "frontend_sg" {
+  name        = "${var.project_name}-frontend-sg"
+  description = "Permitir trafico desde el ALB y SSH para despliegues"
   vpc_id      = aws_vpc.main.id
 
-  # Frontend
   ingress {
     description     = "Frontend desde ALB"
     from_port       = 8080
@@ -39,50 +38,57 @@ resource "aws_security_group" "ec2_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
+  ingress {
+    description = "SSH para GitHub Actions / Administrador"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-frontend-sg"
+  }
+}
+
+# Security Group para el Backend (Privado)
+resource "aws_security_group" "backend_sg" {
+  name        = "${var.project_name}-backend-sg"
+  description = "Permitir trafico solo desde el Frontend"
+  vpc_id      = aws_vpc.main.id
+
   # Backend Despachos
   ingress {
-    description     = "Backend Despachos desde ALB"
+    description     = "Despachos desde Frontend"
     from_port       = 8081
     to_port         = 8081
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
+    security_groups = [aws_security_group.frontend_sg.id]
   }
 
   # Backend Ventas
   ingress {
-    description     = "Backend Ventas desde ALB"
+    description     = "Ventas desde Frontend"
     from_port       = 8082
     to_port         = 8082
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
+    security_groups = [aws_security_group.frontend_sg.id]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-ec2-sg"
-  }
-}
-
-# Security Group para MySQL (Interno)
-# Nota: Como MySQL corre en la misma EC2 en Docker, el tráfico es interno (localhost/bridge). 
-# Sin embargo, se adjunta por buena práctica de separación o en caso de futura migración a RDS.
-resource "aws_security_group" "db_sg" {
-  name        = "${var.project_name}-db-sg"
-  description = "Permitir trafico a MySQL solo desde la EC2"
-  vpc_id      = aws_vpc.main.id
-
+  # SSH desde Frontend (Bastion)
   ingress {
-    description     = "MySQL desde EC2"
-    from_port       = 3306
-    to_port         = 3306
+    description     = "SSH desde Frontend"
+    from_port       = 22
+    to_port         = 22
     protocol        = "tcp"
-    security_groups = [aws_security_group.ec2_sg.id]
+    security_groups = [aws_security_group.frontend_sg.id]
   }
 
   egress {
@@ -93,6 +99,6 @@ resource "aws_security_group" "db_sg" {
   }
 
   tags = {
-    Name = "${var.project_name}-db-sg"
+    Name = "${var.project_name}-backend-sg"
   }
 }
