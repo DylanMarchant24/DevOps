@@ -1,0 +1,127 @@
+name: CD Deployment
+
+on:
+  push:
+    branches:
+      - deploy
+  workflow_dispatch:
+
+env:
+  ECR_REPO_FRONT: ecr-front-despacho
+  ECR_REPO_DESPACHOS: ecr-back-despachos
+  ECR_REPO_VENTAS: ecr-back-ventas
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN}}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        working-directory: ./front_despacho
+        run: |
+          docker build -t $REGISTRY/${{ env.ECR_REPO_FRONT }}:$IMAGE_TAG .
+          docker push $REGISTRY/${{ env.ECR_REPO_FRONT }}:$IMAGE_TAG
+
+      - name: Build, tag, and push Backend Despachos image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        working-directory: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+        run: |
+          docker build -t $REGISTRY/${{ env.ECR_REPO_DESPACHOS }}:$IMAGE_TAG .
+          docker push $REGISTRY/${{ env.ECR_REPO_DESPACHOS }}:$IMAGE_TAG
+
+      - name: Build, tag, and push Backend Ventas image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        working-directory: ./back-Ventas_SpringBoot/Springboot-API-REST
+        run: |
+          docker build -t $REGISTRY/${{ env.ECR_REPO_VENTAS }}:$IMAGE_TAG .
+          docker push $REGISTRY/${{ env.ECR_REPO_VENTAS }}:$IMAGE_TAG
+
+      - name: Create .env for Backend EC2
+        run: |
+          echo "DB_USER=${{ vars.DB_USER }}" > .env.back
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.back
+          echo "DB_URL=${{ vars.DB_URL }}" >> .env.back
+          echo "ECR_BACK_DESPACHOS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_DESPACHOS }}:latest" >> .env.back
+          echo "ECR_BACK_VENTAS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_VENTAS }}:latest" >> .env.back
+
+      - name: Create .env for Frontend EC2
+        run: |
+          echo "ECR_FRONT_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_FRONT }}:latest" > .env.front
+
+      - name: Copy files to Frontend EC2 (Public)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.EC2_FRONT_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,.env.front"
+          target: "/home/ec2-user/app"
+
+      - name: Deploy Frontend to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_FRONT_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            mkdir -p /home/ec2-user/app
+            cd /home/ec2-user/app
+            mv .env.front .env
+            docker-compose down || true
+            docker-compose pull front-despacho
+            docker-compose up -d front-despacho
+            docker image prune -af
+
+      - name: Copy files to Backend EC2 (Private via Proxy)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.EC2_BACK_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          proxy_host: ${{ vars.EC2_FRONT_HOST }}
+          proxy_username: ec2-user
+          proxy_key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,.env.back"
+          target: "/home/ec2-user/app"
+
+      - name: Deploy Backend to EC2 via Proxy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_BACK_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          proxy_host: ${{ vars.EC2_FRONT_HOST }}
+          proxy_username: ec2-user
+          proxy_key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            mkdir -p /home/ec2-user/app
+            cd /home/ec2-user/app
+            mv .env.back .env
+            docker-compose down || true
+            docker-compose pull db back-despachos back-ventas
+            docker-compose up -d db back-despachos back-ventas
+            docker image prune -af
