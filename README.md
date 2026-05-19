@@ -27,6 +27,41 @@ El sistema se despliega en **Amazon Web Services (AWS)** utilizando una separaci
    * Aloja la base de datos relacional MySQL.
    * Cuenta con un **EBS Volume (Elastic Block Store)** acoplado para persistencia de datos independiente del ciclo de vida de la instancia.
 
+### 🗺️ Diagrama de Conectividad
+
+```mermaid
+graph TD
+    User((👨‍💻 Usuario)) -->|HTTP/80| ALB[🌐 ALB - Load Balancer]
+    
+    subgraph VPC [☁️ AWS VPC]
+        ALB -->|Ruteo| EC2_Front
+        
+        subgraph PublicSubnet [🟢 Subred Pública]
+            EC2_Front[💻 EC2 Frontend]
+            React[⚛️ React + Nginx]
+            EC2_Front --- React
+        end
+        
+        React -->|Llamadas API| EC2_Back
+        
+        subgraph PrivateSubnet [🔴 Subred Privada]
+            EC2_Back[🖥️ EC2 Backend]
+            API1[🍃 Spring Boot - Ventas]
+            API2[🍃 Spring Boot - Despachos]
+            DB[(🐬 MySQL)]
+            EBS[💾 Volumen EBS]
+            
+            EC2_Back --- API1
+            EC2_Back --- API2
+            EC2_Back --- DB
+            DB --- EBS
+            
+            API1 -->|JDBC| DB
+            API2 -->|JDBC| DB
+        end
+    end
+```
+
 ## ⚙️ Tecnologías Utilizadas
 
 * **Gestión de Contenedores:** Docker, Docker Compose, Amazon ECR.
