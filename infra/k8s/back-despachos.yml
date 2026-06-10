@@ -1,0 +1,77 @@
+# ============================================================
+# BACKEND DESPACHOS - Kubernetes Manifests
+# Spring Boot API REST - Puerto 8080 interno
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: back-despachos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: back-despachos
+  template:
+    metadata:
+      labels:
+        app: back-despachos
+    spec:
+      containers:
+        - name: back-despachos
+          # La imagen real se inyecta por kubectl set image en el pipeline
+          image: back-despachos:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            # Variables que espera application.properties del backend
+            - name: DB_ENDPOINT
+              value: "mysql"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-database
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
+          # Esperar a que MySQL esté listo antes de arrancar
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+
+---
+# Service ClusterIP: solo accesible desde dentro del cluster
+# El frontend lo llama como http://back-despachos:8080
+apiVersion: v1
+kind: Service
+metadata:
+  name: back-despachos
+spec:
+  selector:
+    app: back-despachos
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

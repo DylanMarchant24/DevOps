@@ -1,11 +1,26 @@
+# ============================================================
+# OUTPUTS
+# EP3: Se reemplazan outputs de EC2 por outputs de EKS
+# ============================================================
+
 output "vpc_id" {
   description = "ID de la VPC principal"
   value       = aws_vpc.main.id
 }
 
 output "alb_dns_name" {
-  description = "DNS del Application Load Balancer"
+  description = "DNS del Application Load Balancer (URL pública del Frontend)"
   value       = aws_lb.main.dns_name
+}
+
+output "eks_cluster_name" {
+  description = "Nombre del clúster EKS"
+  value       = aws_eks_cluster.main.name
+}
+
+output "eks_cluster_endpoint" {
+  description = "Endpoint del API server del clúster EKS"
+  value       = aws_eks_cluster.main.endpoint
 }
 
 output "ecr_back_despachos_url" {
@@ -21,14 +36,4 @@ output "ecr_back_ventas_url" {
 output "ecr_front_despacho_url" {
   description = "URI del repositorio ECR para Frontend"
   value       = aws_ecr_repository.front_despacho.repository_url
-}
-
-output "ec2_front_public_ip" {
-  description = "IP Publica de la instancia Frontend para acceder por SSH"
-  value       = aws_instance.frontend.public_ip
-}
-
-output "ec2_back_private_ip" {
-  description = "IP Privada de la instancia Backend para acceder por SSH proxy"
-  value       = aws_instance.backend.private_ip
 }
