@@ -1,5 +1,6 @@
-name: CD Deployment
+name: CD - Deploy to EKS
 
+# Se activa con push a la rama deploy 
 on:
   push:
     branches:
@@ -7,121 +8,174 @@ on:
   workflow_dispatch:
 
 env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: retail-microservices-cluster
   ECR_REPO_FRONT: ecr-front-despacho
   ECR_REPO_DESPACHOS: ecr-back-despachos
   ECR_REPO_VENTAS: ecr-back-ventas
 
 jobs:
-  build-push-deploy:
+  # --------------------------------------------------------
+  # JOB 1: Build y Push de imágenes a ECR
+  # --------------------------------------------------------
+  build-and-push:
+    name: Build & Push to ECR
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout del repositorio
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN}}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
+      - name: Login a Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push Frontend image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: latest
-        working-directory: ./front_despacho
+      - name: Obtener AWS Account ID
         run: |
-          docker build -t $REGISTRY/${{ env.ECR_REPO_FRONT }}:$IMAGE_TAG .
-          docker push $REGISTRY/${{ env.ECR_REPO_FRONT }}:$IMAGE_TAG
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
 
-      - name: Build, tag, and push Backend Despachos image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: latest
-        working-directory: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+      - name: Construir URLs de los repositorios ECR
         run: |
-          docker build -t $REGISTRY/${{ env.ECR_REPO_DESPACHOS }}:$IMAGE_TAG .
-          docker push $REGISTRY/${{ env.ECR_REPO_DESPACHOS }}:$IMAGE_TAG
+          echo "FRONT_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_FRONT}" >> $GITHUB_ENV
+          echo "DESPACHOS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_DESPACHOS}" >> $GITHUB_ENV
+          echo "VENTAS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_VENTAS}" >> $GITHUB_ENV
 
-      - name: Build, tag, and push Backend Ventas image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: latest
-        working-directory: ./back-Ventas_SpringBoot/Springboot-API-REST
+      # BUILD + PUSH FRONTEND
+      - name: Build imagen Frontend
         run: |
-          docker build -t $REGISTRY/${{ env.ECR_REPO_VENTAS }}:$IMAGE_TAG .
-          docker push $REGISTRY/${{ env.ECR_REPO_VENTAS }}:$IMAGE_TAG
+          docker buildx build \
+            --platform linux/amd64 \
+            -t $FRONT_ECR:${{ github.sha }} \
+            -t $FRONT_ECR:latest \
+            ./front_despacho \
+            --load
 
-      - name: Create .env for Backend EC2
+      - name: Push imagen Frontend a ECR
         run: |
-          echo "DB_USER=${{ vars.DB_USER }}" > .env.back
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.back
-          echo "DB_URL=${{ vars.DB_URL }}" >> .env.back
-          echo "ECR_BACK_DESPACHOS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_DESPACHOS }}:latest" >> .env.back
-          echo "ECR_BACK_VENTAS_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_VENTAS }}:latest" >> .env.back
+          docker push $FRONT_ECR:${{ github.sha }}
+          docker push $FRONT_ECR:latest
 
-      - name: Create .env for Frontend EC2
+      # BUILD + PUSH BACKEND DESPACHOS
+      - name: Build imagen Backend Despachos
         run: |
-          echo "ECR_FRONT_IMAGE=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_FRONT }}:latest" > .env.front
+          docker buildx build \
+            --platform linux/amd64 \
+            -t $DESPACHOS_ECR:${{ github.sha }} \
+            -t $DESPACHOS_ECR:latest \
+            ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO \
+            --load
 
-      - name: Copy files to Frontend EC2 (Public)
-        uses: appleboy/scp-action@v0.1.7
+      - name: Push imagen Backend Despachos a ECR
+        run: |
+          docker push $DESPACHOS_ECR:${{ github.sha }}
+          docker push $DESPACHOS_ECR:latest
+
+      # BUILD + PUSH BACKEND VENTAS
+      - name: Build imagen Backend Ventas
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t $VENTAS_ECR:${{ github.sha }} \
+            -t $VENTAS_ECR:latest \
+            ./back-Ventas_SpringBoot/Springboot-API-REST \
+            --load
+
+      - name: Push imagen Backend Ventas a ECR
+        run: |
+          docker push $VENTAS_ECR:${{ github.sha }}
+          docker push $VENTAS_ECR:latest
+
+  # --------------------------------------------------------
+  # JOB 2: Deploy al clúster EKS
+  # --------------------------------------------------------
+  deploy-to-eks:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build-and-push   # espera que Job 1 termine exitosamente
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ vars.EC2_FRONT_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml,.env.front"
-          target: "/home/ec2-user/app"
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy Frontend to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ vars.EC2_FRONT_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            mkdir -p /home/ec2-user/app
-            cd /home/ec2-user/app
-            mv .env.front .env
-            docker-compose down || true
-            docker-compose pull front-despacho
-            docker-compose up -d front-despacho
-            docker image prune -af
+      - name: Obtener AWS Account ID
+        run: |
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
 
-      - name: Copy files to Backend EC2 (Private via Proxy)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ vars.EC2_BACK_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          proxy_host: ${{ vars.EC2_FRONT_HOST }}
-          proxy_username: ec2-user
-          proxy_key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml,.env.back"
-          target: "/home/ec2-user/app"
+      - name: Construir URLs de ECR
+        run: |
+          echo "FRONT_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_FRONT}" >> $GITHUB_ENV
+          echo "DESPACHOS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_DESPACHOS}" >> $GITHUB_ENV
+          echo "VENTAS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_VENTAS}" >> $GITHUB_ENV
 
-      - name: Deploy Backend to EC2 via Proxy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ vars.EC2_BACK_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          proxy_host: ${{ vars.EC2_FRONT_HOST }}
-          proxy_username: ec2-user
-          proxy_key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            mkdir -p /home/ec2-user/app
-            cd /home/ec2-user/app
-            mv .env.back .env
-            docker-compose down || true
-            docker-compose pull db back-despachos back-ventas
-            docker-compose up -d db back-despachos back-ventas
-            docker image prune -af
+      - name: Instalar kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Conectar al clúster EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $CLUSTER_NAME
+
+      # Aplicar todos los manifiestos (Secret, PVC, Deployments, Services, HPA)
+      - name: Aplicar manifiestos de Kubernetes
+        run: |
+          kubectl apply -f infra/k8s/
+
+      # Actualizar las imágenes en los Deployments con el SHA del commit
+      - name: Actualizar imagen del Frontend
+        run: |
+          kubectl set image deployment/front-despacho \
+            front-despacho=$FRONT_ECR:${{ github.sha }}
+
+      - name: Actualizar imagen del Backend Despachos
+        run: |
+          kubectl set image deployment/back-despachos \
+            back-despachos=$DESPACHOS_ECR:${{ github.sha }}
+
+      - name: Actualizar imagen del Backend Ventas
+        run: |
+          kubectl set image deployment/back-ventas \
+            back-ventas=$VENTAS_ECR:${{ github.sha }}
+
+      # Esperar a que los pods estén corriendo
+      - name: Esperar rollout del Frontend
+        run: kubectl rollout status deployment/front-despacho --timeout=300s
+
+      - name: Esperar rollout del Backend Despachos
+        run: kubectl rollout status deployment/back-despachos --timeout=300s
+
+      - name: Esperar rollout del Backend Ventas
+        run: kubectl rollout status deployment/back-ventas --timeout=300s
+
+      # Verificar que todo esté corriendo
+      - name: Verificar pods en ejecución
+        run: |
+          echo "=== PODS ==="
+          kubectl get pods -o wide
+          echo "=== SERVICES ==="
+          kubectl get services
+          echo "=== HPA ==="
+          kubectl get hpa
+
+      # Mostrar la URL pública del Frontend
+      - name: Obtener URL pública del Frontend
+        run: |
+          echo "=== URL PUBLICA DEL FRONTEND ==="
+          kubectl get service front-despacho \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'

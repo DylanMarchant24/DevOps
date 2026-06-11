@@ -2,6 +2,7 @@
 resource "aws_ecr_repository" "back_despachos" {
   name                 = "ecr-back-despachos"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -16,6 +17,7 @@ resource "aws_ecr_repository" "back_despachos" {
 resource "aws_ecr_repository" "back_ventas" {
   name                 = "ecr-back-ventas"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -30,6 +32,7 @@ resource "aws_ecr_repository" "back_ventas" {
 resource "aws_ecr_repository" "front_despacho" {
   name                 = "ecr-front-despacho"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
