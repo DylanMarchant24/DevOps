@@ -25,6 +25,8 @@ spec:
           ports:
             - containerPort: 8080
           env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql:3306/retail_db?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"
             - name: DB_ENDPOINT
               value: "mysql"
             - name: DB_PORT
@@ -46,7 +48,7 @@ spec:
                   key: mysql-password
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /api/v1/ventas
               port: 8080
             initialDelaySeconds: 60
             periodSeconds: 15

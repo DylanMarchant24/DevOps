@@ -23,9 +23,11 @@ spec:
           image: back-despachos:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 8080
+            - containerPort: 8081
           env:
             # Variables que espera application.properties del backend
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql:3306/retail_db?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"
             - name: DB_ENDPOINT
               value: "mysql"
             - name: DB_PORT
@@ -45,11 +47,11 @@ spec:
                 secretKeyRef:
                   name: mysql-secret
                   key: mysql-password
-          # Esperar a que MySQL esté listo antes de arrancar
+          # Esperar a que la API responda antes de marcarlo como listo
           readinessProbe:
             httpGet:
-              path: /actuator/health
-              port: 8080
+              path: /api/v1/despachos
+              port: 8081
             initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 5
@@ -73,5 +75,5 @@ spec:
     app: back-despachos
   ports:
     - port: 8080
-      targetPort: 8080
+      targetPort: 8081
   type: ClusterIP
