@@ -1,0 +1,116 @@
+# ============================================================
+# MYSQL - Kubernetes Manifests
+# Base de datos persistente para los backends
+# ============================================================
+
+# Secret: credenciales de MySQL (base64 encoded)
+# Los valores son: root / retail_db / retail_pass
+# Para regenerarlos: echo -n "valor" | base64
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+type: Opaque
+data:
+  # echo -n "root" | base64
+  mysql-root-password: cm9vdA==
+  # echo -n "retail_user" | base64
+  mysql-user: cmV0YWlsX3VzZXI=
+  # echo -n "retail_pass" | base64
+  mysql-password: cmV0YWlsX3Bhc3M=
+  # echo -n "retail_db" | base64
+  mysql-database: cmV0YWlsX2Ri
+
+---
+# StorageClass usando el driver EBS CSI moderno
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+
+---
+# PersistentVolumeClaim: almacenamiento para los datos de MySQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-sc
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# Deployment de MySQL
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-root-password
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-database
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+
+---
+# Service de MySQL (ClusterIP = solo accesible dentro del cluster)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql   # los backends se conectan a jdbc:mysql://mysql:3306/retail_db
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+  type: ClusterIP

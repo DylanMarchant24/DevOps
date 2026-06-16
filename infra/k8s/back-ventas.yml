@@ -1,0 +1,77 @@
+# ============================================================
+# BACKEND VENTAS - Kubernetes Manifests
+# Spring Boot API REST - Puerto 8080 interno
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: back-ventas
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: back-ventas
+  template:
+    metadata:
+      labels:
+        app: back-ventas
+    spec:
+      containers:
+        - name: back-ventas
+          # La imagen real se inyecta por kubectl set image en el pipeline
+          image: back-ventas:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql:3306/retail_db?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"
+            - name: DB_ENDPOINT
+              value: "mysql"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-database
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ventas
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+
+---
+# Service ClusterIP: solo accesible desde dentro del cluster
+# El frontend lo llama como http://back-ventas:8080
+apiVersion: v1
+kind: Service
+metadata:
+  name: back-ventas
+spec:
+  selector:
+    app: back-ventas
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

@@ -1,3 +1,8 @@
+# ============================================================
+# NETWORK - VPC, Subredes, IGW, NAT Gateway
+# Igual que EP2 pero con tags requeridos por EKS
+# ============================================================
+
 # VPC Principal
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -6,10 +11,12 @@ resource "aws_vpc" "main" {
 
   tags = {
     Name = "${var.project_name}-vpc"
+    # Tags requeridos por EKS para autodescubrimiento
+    "kubernetes.io/cluster/${var.project_name}-cluster" = "shared"
   }
 }
 
-# Internet Gateway para subredes públicas
+# Internet Gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 
@@ -18,7 +25,7 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-# Subredes Públicas
+# Subredes Públicas (EKS workers + ALB)
 resource "aws_subnet" "public" {
   count                   = length(var.public_subnet_cidrs)
   vpc_id                  = aws_vpc.main.id
@@ -28,6 +35,9 @@ resource "aws_subnet" "public" {
 
   tags = {
     Name = "${var.project_name}-public-subnet-${count.index + 1}"
+    # Tag requerido por EKS para que el ALB Ingress Controller descubra las subredes
+    "kubernetes.io/cluster/${var.project_name}-cluster" = "shared"
+    "kubernetes.io/role/elb"                            = "1"
   }
 }
 
@@ -40,10 +50,12 @@ resource "aws_subnet" "private" {
 
   tags = {
     Name = "${var.project_name}-private-subnet-${count.index + 1}"
+    "kubernetes.io/cluster/${var.project_name}-cluster" = "shared"
+    "kubernetes.io/role/internal-elb"                   = "1"
   }
 }
 
-# IP Elástica para el NAT Gateway
+# IP Elástica para NAT Gateway
 resource "aws_eip" "nat" {
   domain = "vpc"
 
@@ -52,7 +64,7 @@ resource "aws_eip" "nat" {
   }
 }
 
-# NAT Gateway (ubicado en la primera subred pública)
+# NAT Gateway (en subred pública)
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
@@ -63,7 +75,7 @@ resource "aws_nat_gateway" "nat" {
   depends_on = [aws_internet_gateway.igw]
 }
 
-# Tabla de Ruteo Pública (Ruta hacia Internet vía IGW)
+# Tabla de Ruteo Pública
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -77,14 +89,13 @@ resource "aws_route_table" "public" {
   }
 }
 
-# Asociación de Subredes Públicas con Tabla Pública
 resource "aws_route_table_association" "public" {
   count          = length(var.public_subnet_cidrs)
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
 
-# Tabla de Ruteo Privada (Ruta hacia Internet vía NAT Gateway)
+# Tabla de Ruteo Privada (salida por NAT)
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
@@ -98,7 +109,6 @@ resource "aws_route_table" "private" {
   }
 }
 
-# Asociación de Subredes Privadas con Tabla Privada
 resource "aws_route_table_association" "private" {
   count          = length(var.private_subnet_cidrs)
   subnet_id      = aws_subnet.private[count.index].id
