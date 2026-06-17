@@ -93,7 +93,8 @@ spec:
               mountPath: /var/lib/mysql
           readinessProbe:
             exec:
-              command: ["mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+              command:
+                ["mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
             initialDelaySeconds: 30
             periodSeconds: 10
       volumes:
@@ -106,7 +107,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mysql   # los backends se conectan a jdbc:mysql://mysql:3306/retail_db
+  name: mysql # los backends se conectan a jdbc:mysql://mysql:3306/retail_db
 spec:
   selector:
     app: mysql
