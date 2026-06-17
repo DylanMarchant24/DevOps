@@ -210,15 +210,35 @@ jobs:
           kubectl set image deployment/back-ventas \
             back-ventas=$VENTAS_ECR:${{ github.sha }}
 
-      # Esperar a que los pods estén corriendo
-      - name: Esperar rollout del Frontend
-        run: kubectl rollout status deployment/front-despacho --timeout=300s
-
-      - name: Esperar rollout del Backend Despachos
-        run: kubectl rollout status deployment/back-despachos --timeout=300s
-
-      - name: Esperar rollout del Backend Ventas
-        run: kubectl rollout status deployment/back-ventas --timeout=300s
+      # Esperar a que los pods estén corriendo en paralelo
+      - name: Esperar rollouts en paralelo
+        run: |
+          echo "Iniciando monitoreo de rollouts en paralelo..."
+          kubectl rollout status deployment/front-despacho --timeout=300s &
+          PID_FRONT=$!
+          kubectl rollout status deployment/back-despachos --timeout=300s &
+          PID_DESPACHOS=$!
+          kubectl rollout status deployment/back-ventas --timeout=300s &
+          PID_VENTAS=$!
+          
+          # Esperar a cada uno y capturar su estado de salida
+          wait $PID_FRONT
+          STATUS_FRONT=$?
+          wait $PID_DESPACHOS
+          STATUS_DESPACHOS=$?
+          wait $PID_VENTAS
+          STATUS_VENTAS=$?
+          
+          echo "Resultados del despliegue:"
+          echo "Frontend rollout status: $STATUS_FRONT"
+          echo "Backend Despachos rollout status: $STATUS_DESPACHOS"
+          echo "Backend Ventas rollout status: $STATUS_VENTAS"
+          
+          if [ $STATUS_FRONT -ne 0 ] || [ $STATUS_DESPACHOS -ne 0 ] || [ $STATUS_VENTAS -ne 0 ]; then
+            echo "Error: Uno o más despliegues de microservicios fallaron."
+            exit 1
+          fi
+          echo "¡Todos los despliegues están listos y en ejecución!"
 
       # Verificar que todo esté corriendo
       - name: Verificar pods en ejecución
@@ -230,35 +250,20 @@ jobs:
           echo "=== HPA ==="
           kubectl get hpa
 
-      # Generar Resumen del Despliegue en GitHub Actions
-      - name: Generar Resumen del Despliegue
+      # Mostrar instrucciones finales
+      - name: Instrucciones de Conexión
         run: |
-          DNS_FRONTEND=$(kubectl get service front-despacho -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          echo "### 🚀 ¡Despliegue Exitoso en AWS EKS!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### 🌐 Acceso al Frontend (DNS Público)" >> $GITHUB_STEP_SUMMARY
-          echo "El balanceador de carga está activo en la siguiente dirección:" >> $GITHUB_STEP_SUMMARY
-          echo "[http://$DNS_FRONTEND](http://$DNS_FRONTEND)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### 🔧 Configurar Consola Local" >> $GITHUB_STEP_SUMMARY
-          echo "Para conectarte a este clúster EKS desde tu terminal local y controlarlo, ejecuta:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "aws eks update-kubeconfig --region us-east-1 --name retail-microservices-cluster" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### 🔍 Comandos de Verificación" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Verificar el estado de todos los recursos (Pods, Services, Deployments):**" >> $GITHUB_STEP_SUMMARY
-          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "   kubectl get all" >> $GITHUB_STEP_SUMMARY
-          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "   *(Deberías ver los pods de mysql, front-despacho y los dos backends en estado 'Running')*" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Monitorear los autoescaladores configurados (HPA):**" >> $GITHUB_STEP_SUMMARY
-          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "   kubectl get hpa" >> $GITHUB_STEP_SUMMARY
-          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Obtener la dirección URL pública de acceso a tu Frontend:**" >> $GITHUB_STEP_SUMMARY
-          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "   kubectl get service front-despacho" >> $GITHUB_STEP_SUMMARY
-          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "=========================================================================================="
+          echo "🚀 ¡DESPLIEGUE EXITOSO EN AWS EKS!"
+          echo "=========================================================================================="
+          echo "🔧 Para conectarte desde tu consola local y verificar:"
+          echo "aws eks update-kubeconfig --region us-east-1 --name retail-microservices-cluster"
+          echo "=========================================================================================="
+          echo "🔍 Comandos rápidos para verificar:"
+          echo "kubectl get all"
+          echo "kubectl get hpa"
+          echo "=========================================================================================="
+
+      # Obtener URL pública de acceso al Frontend
+      - name: Obtener URL y Detalles del Frontend
+        run: kubectl get service front-despacho
