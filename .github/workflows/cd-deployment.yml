@@ -16,10 +16,10 @@ env:
 
 jobs:
   # --------------------------------------------------------
-  # JOB 1: Build y Push de imágenes a ECR
+  # JOB 1: Build y Push de Frontend a ECR
   # --------------------------------------------------------
-  build-and-push:
-    name: Build & Push to ECR
+  build-push-front:
+    name: Build & Push Frontend to ECR
     runs-on: ubuntu-latest
 
     steps:
@@ -42,13 +42,10 @@ jobs:
         run: |
           echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
 
-      - name: Construir URLs de los repositorios ECR
+      - name: Construir URL de ECR Front
         run: |
           echo "FRONT_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_FRONT}" >> $GITHUB_ENV
-          echo "DESPACHOS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_DESPACHOS}" >> $GITHUB_ENV
-          echo "VENTAS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_VENTAS}" >> $GITHUB_ENV
 
-      # BUILD + PUSH FRONTEND
       - name: Build imagen Frontend
         run: |
           docker buildx build \
@@ -63,7 +60,37 @@ jobs:
           docker push $FRONT_ECR:${{ github.sha }}
           docker push $FRONT_ECR:latest
 
-      # BUILD + PUSH BACKEND DESPACHOS
+  # --------------------------------------------------------
+  # JOB 2: Build y Push de Backend Despachos a ECR
+  # --------------------------------------------------------
+  build-push-despachos:
+    name: Build & Push Backend Despachos to ECR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Obtener AWS Account ID
+        run: |
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+      - name: Construir URL de ECR Despachos
+        run: |
+          echo "DESPACHOS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_DESPACHOS}" >> $GITHUB_ENV
+
       - name: Build imagen Backend Despachos
         run: |
           docker buildx build \
@@ -78,7 +105,37 @@ jobs:
           docker push $DESPACHOS_ECR:${{ github.sha }}
           docker push $DESPACHOS_ECR:latest
 
-      # BUILD + PUSH BACKEND VENTAS
+  # --------------------------------------------------------
+  # JOB 3: Build y Push de Backend Ventas a ECR
+  # --------------------------------------------------------
+  build-push-ventas:
+    name: Build & Push Backend Ventas to ECR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Obtener AWS Account ID
+        run: |
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+      - name: Construir URL de ECR Ventas
+        run: |
+          echo "VENTAS_ECR=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_VENTAS}" >> $GITHUB_ENV
+
       - name: Build imagen Backend Ventas
         run: |
           docker buildx build \
@@ -94,12 +151,12 @@ jobs:
           docker push $VENTAS_ECR:latest
 
   # --------------------------------------------------------
-  # JOB 2: Deploy al clúster EKS
+  # JOB 4: Deploy al clúster EKS
   # --------------------------------------------------------
   deploy-to-eks:
     name: Deploy to EKS
     runs-on: ubuntu-latest
-    needs: build-and-push   # espera que Job 1 termine exitosamente
+    needs: [build-push-front, build-push-despachos, build-push-ventas]
 
     steps:
       - name: Checkout del repositorio
@@ -153,15 +210,35 @@ jobs:
           kubectl set image deployment/back-ventas \
             back-ventas=$VENTAS_ECR:${{ github.sha }}
 
-      # Esperar a que los pods estén corriendo
-      - name: Esperar rollout del Frontend
-        run: kubectl rollout status deployment/front-despacho --timeout=300s
-
-      - name: Esperar rollout del Backend Despachos
-        run: kubectl rollout status deployment/back-despachos --timeout=300s
-
-      - name: Esperar rollout del Backend Ventas
-        run: kubectl rollout status deployment/back-ventas --timeout=300s
+      # Esperar a que los pods estén corriendo en paralelo
+      - name: Esperar rollouts en paralelo
+        run: |
+          echo "Iniciando monitoreo de rollouts en paralelo..."
+          kubectl rollout status deployment/front-despacho --timeout=300s &
+          PID_FRONT=$!
+          kubectl rollout status deployment/back-despachos --timeout=300s &
+          PID_DESPACHOS=$!
+          kubectl rollout status deployment/back-ventas --timeout=300s &
+          PID_VENTAS=$!
+          
+          # Esperar a cada uno y capturar su estado de salida
+          wait $PID_FRONT
+          STATUS_FRONT=$?
+          wait $PID_DESPACHOS
+          STATUS_DESPACHOS=$?
+          wait $PID_VENTAS
+          STATUS_VENTAS=$?
+          
+          echo "Resultados del despliegue:"
+          echo "Frontend rollout status: $STATUS_FRONT"
+          echo "Backend Despachos rollout status: $STATUS_DESPACHOS"
+          echo "Backend Ventas rollout status: $STATUS_VENTAS"
+          
+          if [ $STATUS_FRONT -ne 0 ] || [ $STATUS_DESPACHOS -ne 0 ] || [ $STATUS_VENTAS -ne 0 ]; then
+            echo "Error: Uno o más despliegues de microservicios fallaron."
+            exit 1
+          fi
+          echo "¡Todos los despliegues están listos y en ejecución!"
 
       # Verificar que todo esté corriendo
       - name: Verificar pods en ejecución
@@ -173,9 +250,20 @@ jobs:
           echo "=== HPA ==="
           kubectl get hpa
 
-      # Mostrar la URL pública del Frontend
-      - name: Obtener URL pública del Frontend
+      # Mostrar instrucciones finales
+      - name: Instrucciones de Conexión
         run: |
-          echo "=== URL PUBLICA DEL FRONTEND ==="
-          kubectl get service front-despacho \
-            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+          echo "=========================================================================================="
+          echo "🚀 ¡DESPLIEGUE EXITOSO EN AWS EKS!"
+          echo "=========================================================================================="
+          echo "🔧 Para conectarte desde tu consola local y verificar:"
+          echo "aws eks update-kubeconfig --region us-east-1 --name retail-microservices-cluster"
+          echo "=========================================================================================="
+          echo "🔍 Comandos rápidos para verificar:"
+          echo "kubectl get all"
+          echo "kubectl get hpa"
+          echo "=========================================================================================="
+
+      # Obtener URL pública de acceso al Frontend
+      - name: Obtener URL y Detalles del Frontend
+        run: kubectl get service front-despacho
