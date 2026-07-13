@@ -24,11 +24,15 @@ jobs:
 
       - name: Validate Backend Despachos
         working-directory: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
-        run: mvn clean compile
+        run: |
+          chmod +x mvnw
+          ./mvnw test
 
       - name: Validate Backend Ventas
         working-directory: ./back-Ventas_SpringBoot/Springboot-API-REST
-        run: mvn clean compile
+        run: |
+          chmod +x mvnw
+          ./mvnw test
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
